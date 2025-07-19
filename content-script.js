@@ -364,9 +364,102 @@ class ChatGPTToPDF {
         color: ${colors.text} !important;
       }
       
-      /* Math and LaTeX */
+      /* Math and LaTeX - improved rendering */
       .katex, .math {
         color: ${colors.text} !important;
+        font-size: 1em !important;
+        line-height: 1.2 !important;
+      }
+      
+      /* Ensure MathML renders properly in print */
+      .katex-mathml {
+        display: inline !important;
+        position: static !important;
+        clip: auto !important;
+        width: auto !important;
+        height: auto !important;
+      }
+      
+      /* Hide duplicate LaTeX HTML rendering in favor of MathML */
+      .katex-html {
+        display: none !important;
+      }
+      
+      /* SVG styling - ensure proper sizing for print */
+      svg {
+        min-width: 150px !important;
+        min-height: 100px !important;
+        max-width: 400px !important;
+        max-height: 400px !important;
+        width: auto !important;
+        height: auto !important;
+        display: inline-block !important;
+        vertical-align: middle !important;
+        margin: 8px 0 !important;
+      }
+      
+      @media print {
+        svg {
+          min-width: 150px !important;
+          min-height: 100px !important;
+          max-width: 300px !important;
+          max-height: 300px !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+      }
+      
+      /* Image styling - ensure visibility and proper sizing */
+      img {
+        max-width: 100% !important;
+        height: auto !important;
+        display: block !important;
+        margin: 8px 0 !important;
+        border-radius: 6px !important;
+        border: none !important;
+        background: none !important;
+        box-shadow: ${finalTheme === 'dark' ? 'none' : '0 2px 8px rgba(0,0,0,0.1)'} !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        object-fit: contain !important;
+      }
+      
+      /* Placeholder styling for CORS-restricted images */
+      .image-placeholder {
+        width: 100% !important;
+        min-height: 200px !important;
+        background: ${finalTheme === 'dark' ? 'linear-gradient(135deg, #3a3a3a 0%, #2a2a2a 100%)' : 'linear-gradient(135deg, #f0f0f0 0%, #e0e0e0 100%)'} !important;
+        border: 2px dashed ${finalTheme === 'dark' ? '#555' : '#ccc'} !important;
+        border-radius: 8px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        color: ${finalTheme === 'dark' ? '#aaa' : '#666'} !important;
+        margin: 8px 0 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      
+      @media print {
+        img {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          color-adjust: exact !important;
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+          display: block !important;
+          opacity: 1 !important;
+          visibility: visible !important;
+        }
+        
+        .image-placeholder {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+        }
       }
       
       /* Lists */
@@ -402,6 +495,53 @@ class ChatGPTToPDF {
     });
   }
 
+  async waitForImagesLoad() {
+    // Find all images in the conversation and wait for them to load (what we can)
+    const conversationElements = document.querySelectorAll(this.conversationSelector);
+    const allImages = [];
+    
+    conversationElements.forEach(element => {
+      const images = element.querySelectorAll('img');
+      allImages.push(...images);
+    });
+    
+    // Wait for non-CORS images to load
+    const imagePromises = allImages.map(img => {
+      return new Promise((resolve) => {
+        // Skip CORS-restricted images as they'll be replaced with placeholders
+        if (img.src.includes('oaiusercontent.com')) {
+          resolve();
+          return;
+        }
+        
+        if (img.complete && img.naturalWidth > 0) {
+          resolve();
+        } else {
+          const onLoad = () => {
+            img.removeEventListener('load', onLoad);
+            img.removeEventListener('error', onLoad);
+            resolve();
+          };
+          img.addEventListener('load', onLoad);
+          img.addEventListener('error', onLoad);
+          
+          // Force reload if src exists but image isn't loaded
+          if (img.src) {
+            const currentSrc = img.src;
+            img.src = '';
+            img.src = currentSrc;
+          }
+        }
+      });
+    });
+    
+    // Wait for all loadable images or timeout after 3 seconds
+    await Promise.race([
+      Promise.all(imagePromises),
+      new Promise(resolve => setTimeout(resolve, 3000))
+    ]);
+  }
+
   extractConversationHTML() {
     const conversationElements = document.querySelectorAll(this.conversationSelector);
     if (conversationElements.length === 0) {
@@ -409,7 +549,146 @@ class ChatGPTToPDF {
     }
 
     return Array.from(conversationElements)
-      .map(element => element.outerHTML)
+      .map(element => {
+        // Clone the element to avoid modifying the original
+        const clonedElement = element.cloneNode(true);
+        
+        // Fix LaTeX: Remove duplicate rendered LaTeX elements
+        // Keep only the original LaTeX source (usually in span.katex-mathml or similar)
+        const katexElements = clonedElement.querySelectorAll('.katex');
+        katexElements.forEach(katex => {
+          // Keep only the LaTeX source, remove rendered HTML
+          const mathML = katex.querySelector('.katex-mathml');
+          const htmlRender = katex.querySelector('.katex-html');
+          if (mathML && htmlRender) {
+            // Remove the HTML render, keep only MathML for proper printing
+            htmlRender.remove();
+          }
+        });
+        
+        // Fix SVG: Ensure SVGs have proper dimensions for print
+        const svgElements = clonedElement.querySelectorAll('svg');
+        svgElements.forEach(svg => {
+          // Get current viewBox for aspect ratio calculation
+          const viewBox = svg.getAttribute('viewBox');
+          let aspectRatio = 1;
+          
+          if (viewBox) {
+            const [x, y, width, height] = viewBox.split(' ').map(parseFloat);
+            if (width && height) {
+              aspectRatio = width / height;
+            }
+          }
+          
+          // Set explicit dimensions suitable for printing
+          const minSize = 150; // Minimum size in pixels
+          const maxSize = 400; // Maximum size in pixels
+          
+          // Calculate dimensions based on aspect ratio
+          let newWidth, newHeight;
+          if (aspectRatio >= 1) {
+            // Wider than tall
+            newWidth = Math.min(maxSize, Math.max(minSize, 300));
+            newHeight = newWidth / aspectRatio;
+          } else {
+            // Taller than wide
+            newHeight = Math.min(maxSize, Math.max(minSize, 300));
+            newWidth = newHeight * aspectRatio;
+          }
+          
+          // Apply the calculated dimensions
+          svg.setAttribute('width', newWidth + 'px');
+          svg.setAttribute('height', newHeight + 'px');
+          svg.style.width = newWidth + 'px';
+          svg.style.height = newHeight + 'px';
+          svg.style.maxWidth = 'none';
+          svg.style.maxHeight = 'none';
+          svg.style.minWidth = minSize + 'px';
+          svg.style.minHeight = (minSize / aspectRatio) + 'px';
+          svg.style.display = 'inline-block';
+          svg.style.verticalAlign = 'middle';
+        });
+        
+        // Fix Images: Handle CORS-restricted images with placeholders
+        const imgElements = clonedElement.querySelectorAll('img');
+        imgElements.forEach((img) => {
+          try {
+            // Remove lazy loading attributes that can prevent printing
+            img.removeAttribute('loading');
+            img.removeAttribute('data-src');
+            img.removeAttribute('decoding');
+            
+            // For CORS images that couldn't be converted, create a placeholder
+            if (!img.src.startsWith('data:') && img.src.includes('oaiusercontent.com')) {
+              // Create a placeholder for CORS-restricted images
+              const placeholder = document.createElement('div');
+              placeholder.className = 'image-placeholder';
+              placeholder.style.cssText = `
+                width: 100%;
+                min-height: 200px;
+                background: linear-gradient(135deg, #f0f0f0 0%, #e0e0e0 100%);
+                border: 2px dashed #ccc;
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-family: system-ui, sans-serif;
+                color: #666;
+                text-align: center;
+                margin: 8px 0;
+                position: relative;
+              `;
+              
+              placeholder.innerHTML = `
+                <div style="padding: 20px;">
+                  <div style="font-size: 48px; margin-bottom: 10px;">🖼️</div>
+                  <div style="font-weight: 600; margin-bottom: 5px;">Generated Image</div>
+                  <div style="font-size: 12px; opacity: 0.7;">Image content from ChatGPT</div>
+                  <div style="font-size: 10px; margin-top: 8px; opacity: 0.5;">Note: External images cannot be embedded due to security restrictions</div>
+                </div>
+              `;
+              
+              // Replace the img with placeholder
+              img.parentNode.replaceChild(placeholder, img);
+              return;
+            }
+            
+            // Apply consistent styling for print visibility
+            img.style.maxWidth = '100%';
+            img.style.height = 'auto';
+            img.style.display = 'block';
+            img.style.margin = '8px 0';
+            img.style.border = 'none';
+            img.style.borderRadius = '6px';
+            img.style.opacity = '1';
+            img.style.visibility = 'visible';
+            img.style.printColorAdjust = 'exact';
+            img.style.webkitPrintColorAdjust = 'exact';
+            
+            // Force image to be visible by removing any hidden classes
+            img.classList.remove('hidden');
+            img.style.display = 'block';
+            
+            // Add aspect ratio preservation
+            const aspectRatio = img.style.aspectRatio;
+            if (aspectRatio) {
+              img.style.aspectRatio = aspectRatio;
+              img.style.objectFit = 'contain';
+            }
+            
+          } catch (error) {
+            console.warn('Error processing image:', error);
+            // Fallback: apply basic styling
+            img.style.maxWidth = '100%';
+            img.style.height = 'auto';
+            img.style.display = 'block';
+            img.style.opacity = '1';
+            img.style.visibility = 'visible';
+          }
+        });
+        
+        return clonedElement.outerHTML;
+      })
       .join('\n');
   }
 
@@ -523,6 +802,11 @@ class ChatGPTToPDF {
       
       // Ensure all messages are loaded
       await this.scrollToLoadAllMessages();
+      
+      this.showStatus('Processing images...');
+      
+      // Pre-load all images to ensure they're available for conversion
+      await this.waitForImagesLoad();
       
       this.showStatus('Extracting conversation...');
       
