@@ -241,8 +241,11 @@ class PopupController {
 
   async loadThemePreference() {
     try {
-      const result = await chrome.storage.local.get('pdfTheme');
-      const savedTheme = result.pdfTheme || 'auto';
+      const result = await chrome.storage.local.get('chatgpt-pdf-settings');
+      let savedTheme = 'auto';
+      if (result['chatgpt-pdf-settings']) {
+        savedTheme = result['chatgpt-pdf-settings'].theme || 'auto';
+      }
       this.selectTheme(savedTheme);
     } catch (error) {
       console.warn('Could not load theme preference:', error);
@@ -252,7 +255,15 @@ class PopupController {
 
   async saveThemePreference(theme) {
     try {
-      await chrome.storage.local.set({ pdfTheme: theme });
+      // Get existing settings first
+      const result = await chrome.storage.local.get('chatgpt-pdf-settings');
+      const settings = result['chatgpt-pdf-settings'] || {};
+      
+      // Update theme and mark as having preference
+      settings.theme = theme;
+      settings.hasPreference = true;
+      
+      await chrome.storage.local.set({ 'chatgpt-pdf-settings': settings });
     } catch (error) {
       console.warn('Could not save theme preference:', error);
     }
@@ -278,14 +289,15 @@ class PopupController {
 }
 
 // Initialize popup when DOM is loaded
+let popupController;
 document.addEventListener('DOMContentLoaded', () => {
-  new PopupController();
+  popupController = new PopupController();
 });
 
 // Handle popup opening/closing
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
+  if (document.visibilityState === 'visible' && popupController) {
     // Popup became visible, refresh status
-    const controller = new PopupController();
+    popupController.checkPageStatus();
   }
 });

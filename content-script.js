@@ -2,9 +2,50 @@ class ChatGPTToPDF {
   constructor() {
     this.conversationSelector = 'div[class*="group/conversation-turn"]';
     this.isExporting = false;
-    this.pdfTheme = 'auto'; // 'auto', 'light', 'dark'
-    this.initFloatingButton();
-    this.loadSettings();
+    this.pdfTheme = 'auto';
+    this.hasPreference = false;
+    this.initialized = false;
+    
+    // Initialize floating button after DOM ready, non-blocking
+    this.initWhenReady();
+  }
+
+  initWhenReady() {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => this.delayedInit());
+    } else {
+      this.delayedInit();
+    }
+  }
+
+  async delayedInit() {
+    // Only initialize on ChatGPT conversation pages
+    if (!this.isChatGPTConversationPage()) {
+      return;
+    }
+    
+    // Wait a bit for ChatGPT to fully load
+    setTimeout(async () => {
+      try {
+        await this.loadSettings();
+        await this.initFloatingButton();
+        this.initialized = true;
+      } catch (error) {
+        console.warn('ChatGPT PDF: Init failed', error);
+      }
+    }, 3000);
+  }
+
+  isChatGPTConversationPage() {
+    // Check if we're on a ChatGPT conversation page (not homepage, settings, etc.)
+    const isValidDomain = window.location.hostname === 'chatgpt.com' || 
+                         window.location.hostname === 'chat.openai.com';
+    
+    // Check if URL contains conversation pattern
+    const hasConversationPath = window.location.pathname.includes('/c/') || 
+                               document.querySelectorAll(this.conversationSelector).length > 0;
+    
+    return isValidDomain && hasConversationPath;
   }
 
   async extractCSSStyles(theme = null) {
@@ -132,11 +173,54 @@ class ChatGPTToPDF {
       
       /* Conversation container */
       div[class*="group/conversation-turn"] {
-        margin-bottom: 20px !important;
-        page-break-inside: avoid !important;
+        margin-bottom: 16px !important;
         border-radius: 8px !important;
-        padding: 16px !important;
+        padding: 12px !important;
         border: 1px solid ${colors.border} !important;
+        overflow: visible !important;
+      }
+      
+      @media print {
+        /* Page setup */
+        @page {
+          margin: 0.75in 0.5in;
+          size: letter;
+          orphans: 2;
+          widows: 2;
+        }
+        
+        body {
+          margin: 0;
+          padding: 0;
+          line-height: 1.4 !important;
+        }
+        
+        /* Conversation containers - allow breaking for long content */
+        div[class*="group/conversation-turn"] {
+          margin-bottom: 12px !important;
+          padding: 8px !important;
+          page-break-inside: auto;
+          break-inside: auto;
+        }
+        
+        /* Title should not break */
+        .main-title {
+          margin-bottom: 16px !important;
+          page-break-after: avoid;
+        }
+        
+        /* Code blocks can break across pages */
+        pre, code {
+          page-break-inside: auto;
+          break-inside: auto;
+          white-space: pre-wrap !important;
+          word-wrap: break-word !important;
+        }
+        
+        /* Prevent UI elements from printing */
+        button, [role="button"], .cursor-pointer {
+          display: none !important;
+        }
       }
       
       /* User messages */
@@ -216,11 +300,6 @@ class ChatGPTToPDF {
         border-radius: 4px !important;
       }
       
-      /* Remove ChatGPT UI elements that shouldn't be in PDF */
-      button, [role="button"], .cursor-pointer {
-        display: none !important;
-      }
-      
       /* Ensure proper text visibility */
       .text-white {
         color: ${colors.text} !important;
@@ -228,14 +307,6 @@ class ChatGPTToPDF {
       
       .bg-white {
         background-color: ${colors.background} !important;
-      }
-      
-      @media print {
-        body { margin: 0; padding: 20px; }
-        * { 
-          -webkit-print-color-adjust: exact !important;
-          color-adjust: exact !important;
-        }
       }
     `;
   }
@@ -273,16 +344,21 @@ class ChatGPTToPDF {
   }
 
   async generatePDFDirectly(conversationHTML, cssStyles, filename) {
-    // Create a temporary iframe for PDF generation
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'absolute';
-    iframe.style.left = '-9999px';
-    iframe.style.width = '8.5in';
-    iframe.style.height = '11in';
-    document.body.appendChild(iframe);
-    
     const title = document.title || 'ChatGPT Conversation';
     const timestamp = new Date().toLocaleString();
+    
+    // Create iframe for hidden PDF generation
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = `
+      position: absolute;
+      left: -9999px;
+      top: -9999px;
+      width: 8.5in;
+      height: 11in;
+      border: none;
+      visibility: hidden;
+    `;
+    document.body.appendChild(iframe);
     
     const htmlContent = `<!DOCTYPE html>
 <html dir="ltr">
@@ -301,41 +377,67 @@ class ChatGPTToPDF {
 </body>
 </html>`;
     
+    // Write content to iframe
     iframe.contentDocument.open();
     iframe.contentDocument.write(htmlContent);
     iframe.contentDocument.close();
     
-    // Wait for content to load
+    // Wait for content to load and render
     await new Promise(resolve => {
-      iframe.onload = resolve;
-      setTimeout(resolve, 1000); // fallback
+      const checkLoad = () => {
+        if (iframe.contentDocument.readyState === 'complete') {
+          resolve();
+        } else {
+          setTimeout(checkLoad, 100);
+        }
+      };
+      checkLoad();
     });
     
+    // Additional delay for styling to apply
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
     try {
-      // Try to print to PDF
-      const printWindow = iframe.contentWindow;
-      printWindow.focus();
+      // Focus iframe and trigger print
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
       
-      // Auto-download approach using print
-      printWindow.print();
+      // Cleanup after a delay
+      setTimeout(() => {
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe);
+        }
+      }, 2000);
       
-      // Alternative: create download link for the HTML
+    } catch (error) {
+      // Fallback: try to open in new window if iframe print fails
+      console.warn('Iframe print failed, trying window fallback:', error);
+      
       const blob = new Blob([htmlContent], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
-      const downloadLink = document.createElement('a');
-      downloadLink.href = url;
-      downloadLink.download = filename + '.html';
-      downloadLink.style.display = 'none';
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-      document.body.removeChild(downloadLink);
-      URL.revokeObjectURL(url);
+      const printWindow = window.open(url, '_blank', 'width=1000,height=800');
       
-    } finally {
-      // Clean up
-      setTimeout(() => {
+      if (printWindow) {
+        // Try to trigger print after window loads
+        printWindow.addEventListener('load', () => {
+          setTimeout(() => {
+            printWindow.focus();
+            printWindow.print();
+          }, 1000);
+        });
+        
+        // Cleanup
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      }
+      
+      // Remove iframe
+      if (document.body.contains(iframe)) {
         document.body.removeChild(iframe);
-      }, 2000);
+      }
+      
+      if (!printWindow) {
+        throw new Error('Could not open print window. Please allow popups.');
+      }
     }
   }
 
@@ -371,10 +473,10 @@ class ChatGPTToPDF {
       const timestamp = new Date().toISOString().slice(0, 16).replace(/[:\-]/g, '');
       const filename = `${title.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}`;
       
-      // Generate PDF directly
+      // Generate PDF directly with hidden method
       await this.generatePDFDirectly(conversationHTML, cssStyles, filename);
       
-      this.showStatus('PDF exported successfully!', 'success');
+      this.showStatus('Print dialog opened! Choose "Save as PDF"', 'success');
       
     } catch (error) {
       console.error('Export failed:', error);
@@ -418,164 +520,225 @@ class ChatGPTToPDF {
     }
   }
 
-  initFloatingButton() {
-    // Create floating action button
-    const floatingButton = document.createElement('div');
+  async initFloatingButton() {
+    // Skip if already exists
+    if (document.getElementById('chatgpt-pdf-floating-btn')) {
+      return;
+    }
+    
+    // Create floating action button with ChatGPT-like styling
+    const floatingButton = document.createElement('button');
     floatingButton.id = 'chatgpt-pdf-floating-btn';
     floatingButton.innerHTML = `
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
         <polyline points="14,2 14,8 20,8"/>
         <line x1="16" y1="13" x2="8" y2="13"/>
         <line x1="16" y1="17" x2="8" y2="17"/>
         <polyline points="10,9 9,9 8,9"/>
       </svg>
-      <span>PDF</span>
     `;
     
+    // ChatGPT-like styling that adapts to theme
+    const isDark = this.detectCurrentTheme() === 'dark';
     floatingButton.style.cssText = `
       position: fixed;
       bottom: 20px;
       right: 20px;
-      width: 70px;
-      height: 70px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      background: ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'};
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'};
+      border-radius: 8px;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
-      color: white;
+      color: ${isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)'};
       cursor: pointer;
       font-family: system-ui, -apple-system, sans-serif;
-      font-size: 10px;
-      font-weight: 600;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      z-index: 10000;
-      transition: all 0.3s ease;
+      z-index: 1000;
+      transition: all 0.2s ease;
       user-select: none;
-      border: none;
-      gap: 2px;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      opacity: 0.8;
     `;
     
-    // Hover effects
+    // Subtle hover effects
     floatingButton.addEventListener('mouseenter', () => {
-      floatingButton.style.transform = 'scale(1.1)';
-      floatingButton.style.boxShadow = '0 6px 20px rgba(0,0,0,0.25)';
+      floatingButton.style.opacity = '1';
+      floatingButton.style.transform = 'translateY(-1px)';
+      floatingButton.style.background = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)';
     });
     
     floatingButton.addEventListener('mouseleave', () => {
-      floatingButton.style.transform = 'scale(1)';
-      floatingButton.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+      floatingButton.style.opacity = '0.8';
+      floatingButton.style.transform = 'translateY(0)';
+      floatingButton.style.background = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)';
     });
     
-    // Click handler
+    // Click handler - check preference in real-time
     floatingButton.addEventListener('click', () => {
-      this.showThemeSelector();
+      if (this.hasPreference) {
+        // User has preference, export directly
+        this.exportToPDF();
+        this.showNotification('PDF export started! Change theme in extension popup.');
+      } else {
+        // First time, show theme selector
+        this.showFirstTimeThemeSelector();
+      }
     });
     
-    // Add to page after a short delay to ensure DOM is ready
-    setTimeout(() => {
-      if (document.body && !document.getElementById('chatgpt-pdf-floating-btn')) {
-        document.body.appendChild(floatingButton);
-      }
-    }, 2000);
+    // Add to page if DOM is ready
+    if (document.body) {
+      document.body.appendChild(floatingButton);
+    }
   }
 
-  showThemeSelector() {
+  showFirstTimeThemeSelector() {
     // Remove existing selector if any
-    const existing = document.getElementById('chatgpt-pdf-theme-selector');
+    const existing = document.getElementById('chatgpt-pdf-first-time-selector');
     if (existing) {
       existing.remove();
       return;
     }
     
+    const isDark = this.detectCurrentTheme() === 'dark';
     const selector = document.createElement('div');
-    selector.id = 'chatgpt-pdf-theme-selector';
+    selector.id = 'chatgpt-pdf-first-time-selector';
     selector.innerHTML = `
-      <div class="theme-header">Choose PDF Theme</div>
-      <button class="theme-option" data-theme="light">
-        <div class="theme-preview light-preview"></div>
-        <span>Light</span>
+      <div class="first-time-header">📄 PDF Export Preference</div>
+      <div class="first-time-subtitle">Choose your default PDF theme:</div>
+      <button class="first-time-option" data-theme="light">
+        <div class="option-preview light-preview"></div>
+        <div class="option-content">
+          <div class="option-title">Always Light</div>
+          <div class="option-desc">White background, black text</div>
+        </div>
       </button>
-      <button class="theme-option" data-theme="dark">
-        <div class="theme-preview dark-preview"></div>
-        <span>Dark</span>
+      <button class="first-time-option" data-theme="dark">
+        <div class="option-preview dark-preview"></div>
+        <div class="option-content">
+          <div class="option-title">Always Dark</div>
+          <div class="option-desc">Dark background, white text</div>
+        </div>
       </button>
-      <button class="theme-option" data-theme="auto">
-        <div class="theme-preview auto-preview"></div>
-        <span>Auto</span>
+      <button class="first-time-option recommended" data-theme="auto">
+        <div class="option-preview auto-preview"></div>
+        <div class="option-content">
+          <div class="option-title">Follow System ✨</div>
+          <div class="option-desc">Adapts to your ChatGPT theme</div>
+        </div>
       </button>
+      <div class="first-time-note">You can change this later in the extension popup</div>
     `;
     
     selector.style.cssText = `
       position: fixed;
-      bottom: 100px;
+      bottom: 70px;
       right: 20px;
-      background: white;
+      background: ${isDark ? 'rgba(32, 33, 35, 0.95)' : 'rgba(255, 255, 255, 0.95)'};
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'};
       border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+      padding: 20px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
       z-index: 10001;
       font-family: system-ui, -apple-system, sans-serif;
-      min-width: 200px;
-      border: 1px solid #e5e7eb;
+      min-width: 280px;
+      max-width: 320px;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      color: ${isDark ? '#ffffff' : '#000000'};
     `;
     
-    // Add styles for selector components
+    // Add styles for first-time selector components
     const style = document.createElement('style');
     style.textContent = `
-      #chatgpt-pdf-theme-selector .theme-header {
+      #chatgpt-pdf-first-time-selector .first-time-header {
         font-weight: 600;
-        margin-bottom: 12px;
-        color: #374151;
+        margin-bottom: 8px;
+        color: ${isDark ? '#ffffff' : '#1f2937'};
+        font-size: 16px;
         text-align: center;
-        font-size: 14px;
       }
       
-      #chatgpt-pdf-theme-selector .theme-option {
+      #chatgpt-pdf-first-time-selector .first-time-subtitle {
+        font-size: 13px;
+        color: ${isDark ? 'rgba(255, 255, 255, 0.7)' : '#6b7280'};
+        margin-bottom: 16px;
+        text-align: center;
+      }
+      
+      #chatgpt-pdf-first-time-selector .first-time-option {
         display: flex;
         align-items: center;
         gap: 12px;
         width: 100%;
         padding: 12px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'};
         border-radius: 8px;
-        background: white;
+        background: ${isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)'};
         cursor: pointer;
         margin-bottom: 8px;
         transition: all 0.2s ease;
         font-size: 14px;
-        color: #374151;
+        color: ${isDark ? '#ffffff' : '#374151'};
       }
       
-      #chatgpt-pdf-theme-selector .theme-option:hover {
+      #chatgpt-pdf-first-time-selector .first-time-option:hover {
         border-color: #3b82f6;
-        background: #f8fafc;
+        background: ${isDark ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.05)'};
       }
       
-      #chatgpt-pdf-theme-selector .theme-option:last-child {
-        margin-bottom: 0;
+      #chatgpt-pdf-first-time-selector .first-time-option.recommended {
+        border-color: #10b981;
+        background: ${isDark ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.05)'};
       }
       
-      #chatgpt-pdf-theme-selector .theme-preview {
-        width: 24px;
-        height: 24px;
+      #chatgpt-pdf-first-time-selector .first-time-option:last-of-type {
+        margin-bottom: 12px;
+      }
+      
+      #chatgpt-pdf-first-time-selector .option-preview {
+        width: 32px;
+        height: 20px;
         border-radius: 4px;
-        border: 1px solid #d1d5db;
+        border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'};
+        flex-shrink: 0;
       }
       
-      #chatgpt-pdf-theme-selector .light-preview {
-        background: linear-gradient(45deg, #ffffff 50%, #f3f4f6 50%);
+      #chatgpt-pdf-first-time-selector .light-preview {
+        background: linear-gradient(90deg, #ffffff 50%, #f3f4f6 50%);
       }
       
-      #chatgpt-pdf-theme-selector .dark-preview {
-        background: linear-gradient(45deg, #1f2937 50%, #374151 50%);
+      #chatgpt-pdf-first-time-selector .dark-preview {
+        background: linear-gradient(90deg, #1f2937 50%, #374151 50%);
       }
       
-      #chatgpt-pdf-theme-selector .auto-preview {
+      #chatgpt-pdf-first-time-selector .auto-preview {
         background: linear-gradient(45deg, #ffffff 25%, #1f2937 25%, #1f2937 50%, #ffffff 50%, #ffffff 75%, #1f2937 75%);
         background-size: 8px 8px;
+      }
+      
+      #chatgpt-pdf-first-time-selector .option-content {
+        flex: 1;
+      }
+      
+      #chatgpt-pdf-first-time-selector .option-title {
+        font-weight: 500;
+        margin-bottom: 2px;
+      }
+      
+      #chatgpt-pdf-first-time-selector .option-desc {
+        font-size: 12px;
+        opacity: 0.7;
+      }
+      
+      #chatgpt-pdf-first-time-selector .first-time-note {
+        font-size: 11px;
+        color: ${isDark ? 'rgba(255, 255, 255, 0.5)' : '#9ca3af'};
+        text-align: center;
+        font-style: italic;
       }
     `;
     
@@ -583,11 +746,12 @@ class ChatGPTToPDF {
     document.body.appendChild(selector);
     
     // Add click handlers for theme options
-    selector.querySelectorAll('.theme-option').forEach(option => {
-      option.addEventListener('click', (e) => {
+    selector.querySelectorAll('.first-time-option').forEach(option => {
+      option.addEventListener('click', async (e) => {
         const theme = e.currentTarget.getAttribute('data-theme');
         this.pdfTheme = theme;
-        this.saveSettings();
+        this.hasPreference = true;
+        await this.saveSettings();
         selector.remove();
         style.remove();
         this.exportToPDF(theme === 'auto' ? null : theme);
@@ -605,22 +769,87 @@ class ChatGPTToPDF {
     }, 100);
   }
 
-  saveSettings() {
-    localStorage.setItem('chatgpt-pdf-settings', JSON.stringify({
-      theme: this.pdfTheme
-    }));
+  async saveSettings() {
+    try {
+      await chrome.storage.local.set({
+        'chatgpt-pdf-settings': {
+          theme: this.pdfTheme,
+          hasPreference: true
+        }
+      });
+      this.hasPreference = true;
+    } catch (error) {
+      // Fallback to localStorage
+      try {
+        localStorage.setItem('chatgpt-pdf-settings', JSON.stringify({
+          theme: this.pdfTheme,
+          hasPreference: true
+        }));
+        this.hasPreference = true;
+      } catch (localError) {
+        console.warn('Could not save PDF settings:', error, localError);
+      }
+    }
   }
 
-  loadSettings() {
+  async loadSettings() {
     try {
-      const settings = localStorage.getItem('chatgpt-pdf-settings');
-      if (settings) {
-        const parsed = JSON.parse(settings);
-        this.pdfTheme = parsed.theme || 'auto';
+      const result = await chrome.storage.local.get('chatgpt-pdf-settings');
+      if (result['chatgpt-pdf-settings']) {
+        const settings = result['chatgpt-pdf-settings'];
+        this.pdfTheme = settings.theme || 'auto';
+        this.hasPreference = settings.hasPreference || false;
       }
     } catch (error) {
-      console.warn('Could not load PDF settings:', error);
+      // Fallback to localStorage
+      try {
+        const settings = localStorage.getItem('chatgpt-pdf-settings');
+        if (settings) {
+          const parsed = JSON.parse(settings);
+          this.pdfTheme = parsed.theme || 'auto';
+          this.hasPreference = parsed.hasPreference || false;
+        }
+      } catch (localError) {
+        console.warn('Could not load PDF settings:', error, localError);
+      }
     }
+  }
+
+  showNotification(message, duration = 3000) {
+    // Remove existing notification
+    const existing = document.getElementById('chatgpt-pdf-notification');
+    if (existing) existing.remove();
+    
+    const isDark = this.detectCurrentTheme() === 'dark';
+    const notification = document.createElement('div');
+    notification.id = 'chatgpt-pdf-notification';
+    notification.textContent = message;
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: ${isDark ? 'rgba(32, 33, 35, 0.95)' : 'rgba(255, 255, 255, 0.95)'};
+      color: ${isDark ? '#ffffff' : '#000000'};
+      padding: 12px 16px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 10002;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      max-width: 300px;
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'};
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Auto remove
+    setTimeout(() => {
+      if (document.body.contains(notification)) {
+        notification.remove();
+      }
+    }, duration);
   }
 }
 
@@ -639,12 +868,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.action === 'setTheme') {
     chatGPTToPDF.pdfTheme = request.theme;
+    chatGPTToPDF.hasPreference = true;
     chatGPTToPDF.saveSettings();
     sendResponse({ success: true });
   }
   
   if (request.action === 'getTheme') {
-    sendResponse({ theme: chatGPTToPDF.pdfTheme });
+    sendResponse({ 
+      theme: chatGPTToPDF.pdfTheme,
+      hasPreference: chatGPTToPDF.hasPreference
+    });
   }
   
   if (request.action === 'checkIfChatGPT') {
