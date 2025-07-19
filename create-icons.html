@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Create Extension Icons</title>
+</head>
+<body>
+    <h1>Creating Extension Icons...</h1>
+    <div id="canvases"></div>
+    
+    <script>
+        const sizes = [16, 32, 48, 128];
+        const canvasContainer = document.getElementById('canvases');
+        
+        sizes.forEach(size => {
+            // Create canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            
+            // Draw icon - simple PDF-style icon
+            // Background
+            ctx.fillStyle = '#3b82f6';
+            ctx.fillRect(0, 0, size, size);
+            
+            // Document shape
+            const padding = size * 0.15;
+            const docWidth = size - (padding * 2);
+            const docHeight = size - (padding * 2);
+            
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(padding, padding, docWidth, docHeight);
+            
+            // Fold corner
+            const foldSize = size * 0.2;
+            ctx.fillStyle = '#e5e7eb';
+            ctx.beginPath();
+            ctx.moveTo(size - padding, padding);
+            ctx.lineTo(size - padding - foldSize, padding);
+            ctx.lineTo(size - padding, padding + foldSize);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Text lines
+            ctx.fillStyle = '#6b7280';
+            const lineHeight = size * 0.08;
+            const lineWidth = docWidth * 0.7;
+            const startY = padding + size * 0.3;
+            
+            for (let i = 0; i < 3; i++) {
+                ctx.fillRect(
+                    padding + docWidth * 0.15,
+                    startY + (i * lineHeight * 1.5),
+                    lineWidth,
+                    lineHeight * 0.4
+                );
+            }
+            
+            // Add to page for preview
+            canvasContainer.appendChild(canvas);
+            
+            // Convert to blob and create download
+            canvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `icon${size}.png`;
+                link.textContent = `Download icon${size}.png`;
+                link.style.display = 'block';
+                link.style.margin = '10px';
+                document.body.appendChild(link);
+                
+                // Auto-download
+                link.click();
+            }, 'image/png');
+        });
+    </script>
+</body>
+</html>
