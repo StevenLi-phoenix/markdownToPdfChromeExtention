@@ -175,8 +175,9 @@ class ChatGPTToPDF {
       div[class*="group/conversation-turn"] {
         margin-bottom: 16px !important;
         border-radius: 8px !important;
-        padding: 12px !important;
-        border: 1px solid ${colors.border} !important;
+        padding: 16px !important;
+        border: ${finalTheme === 'dark' ? 'none' : '1px solid ' + colors.border} !important;
+        background-color: ${finalTheme === 'dark' ? 'transparent' : colors.background} !important;
         overflow: visible !important;
       }
       
@@ -223,16 +224,18 @@ class ChatGPTToPDF {
         }
       }
       
-      /* User messages */
-      div[class*="group/conversation-turn"]:has([data-message-author-role="user"]),
-      div[class*="group/conversation-turn"] [data-message-author-role="user"] {
-        background-color: ${colors.userBackground} !important;
+      /* User messages - preserve ChatGPT styling */
+      div[class*="group/conversation-turn"]:has([data-message-author-role="user"]) {
+        background-color: ${finalTheme === 'dark' ? 'rgba(52, 53, 65, 0.8)' : colors.userBackground} !important;
+        border: ${finalTheme === 'dark' ? 'none' : '1px solid rgba(0,0,0,0.1)'} !important;
+        margin: 1.5rem 0 !important;
       }
       
-      /* Assistant messages */
-      div[class*="group/conversation-turn"]:has([data-message-author-role="assistant"]),
-      div[class*="group/conversation-turn"] [data-message-author-role="assistant"] {
-        background-color: ${colors.assistantBackground} !important;
+      /* Assistant messages - preserve ChatGPT styling */
+      div[class*="group/conversation-turn"]:has([data-message-author-role="assistant"]) {
+        background-color: ${finalTheme === 'dark' ? 'rgba(68, 70, 84, 0.8)' : colors.assistantBackground} !important;
+        border: ${finalTheme === 'dark' ? 'none' : '1px solid rgba(0,0,0,0.1)'} !important;
+        margin: 1.5rem 0 !important;
       }
       
       /* Text content */
@@ -243,17 +246,29 @@ class ChatGPTToPDF {
         color: ${colors.text} !important;
       }
       
-      /* Code blocks */
-      pre, code {
-        background-color: ${colors.codeBackground} !important;
-        color: ${finalTheme === 'dark' ? '#f8f8f2' : '#333333'} !important;
-        border: 1px solid ${colors.codeBorder} !important;
-        border-radius: 4px !important;
-        padding: 8px !important;
-        font-family: 'Consolas', 'Monaco', 'Courier New', monospace !important;
-        font-size: 12px !important;
+      /* Code blocks - enhanced styling */
+      pre {
+        background-color: ${finalTheme === 'dark' ? 'rgba(23, 23, 23, 0.95)' : '#f8f8f8'} !important;
+        color: ${finalTheme === 'dark' ? '#e6e6e6' : '#1a1a1a'} !important;
+        border: ${finalTheme === 'dark' ? '1px solid rgba(255,255,255,0.1)' : '1px solid #e1e5e9'} !important;
+        border-radius: 6px !important;
+        padding: 12px !important;
+        font-family: 'SFMono-Regular', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Consolas', monospace !important;
+        font-size: 13px !important;
+        line-height: 1.4 !important;
         overflow-wrap: break-word !important;
         white-space: pre-wrap !important;
+        margin: 8px 0 !important;
+      }
+      
+      code:not(pre code) {
+        background-color: ${finalTheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'} !important;
+        color: ${finalTheme === 'dark' ? '#ff6b6b' : '#c41e3a'} !important;
+        border: none !important;
+        border-radius: 3px !important;
+        padding: 2px 6px !important;
+        font-family: 'SFMono-Regular', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Consolas', monospace !important;
+        font-size: 0.9em !important;
       }
       
       /* Links */
@@ -272,32 +287,67 @@ class ChatGPTToPDF {
         margin-bottom: 4px !important;
       }
       
-      /* Tables */
+      /* Tables - improved styling */
       table {
         border-collapse: collapse !important;
-        border: 1px solid ${colors.border} !important;
+        border: ${finalTheme === 'dark' ? '1px solid rgba(255,255,255,0.2)' : '1px solid #d1d5db'} !important;
+        width: 100% !important;
+        margin: 12px 0 !important;
+        border-radius: 6px !important;
+        overflow: hidden !important;
       }
       
       th, td {
-        border: 1px solid ${colors.border} !important;
-        padding: 8px !important;
+        border: ${finalTheme === 'dark' ? '1px solid rgba(255,255,255,0.1)' : '1px solid #e5e7eb'} !important;
+        padding: 12px !important;
         color: ${colors.text} !important;
+        text-align: left !important;
       }
       
       th {
-        background-color: ${colors.codeBackground} !important;
-        font-weight: bold !important;
+        background-color: ${finalTheme === 'dark' ? 'rgba(255,255,255,0.05)' : '#f9fafb'} !important;
+        font-weight: 600 !important;
+        font-size: 0.9em !important;
       }
       
       /* Blockquotes */
       blockquote {
-        border-left: 4px solid ${colors.border} !important;
-        padding-left: 16px !important;
-        margin-left: 0 !important;
-        color: ${colors.secondaryText} !important;
-        background-color: ${colors.codeBackground} !important;
-        padding: 12px 16px !important;
-        border-radius: 4px !important;
+        border-left: 4px solid ${finalTheme === 'dark' ? '#4a9eff' : '#2563eb'} !important;
+        padding: 16px 20px !important;
+        margin: 16px 0 !important;
+        color: ${colors.text} !important;
+        background-color: ${finalTheme === 'dark' ? 'rgba(74, 158, 255, 0.1)' : 'rgba(37, 99, 235, 0.05)'} !important;
+        border-radius: 6px !important;
+        font-style: italic !important;
+      }
+      
+      /* Images and media - preserve as-is */
+      img {
+        max-width: 100% !important;
+        height: auto !important;
+        border-radius: 6px !important;
+        border: none !important;
+        background: none !important;
+        box-shadow: ${finalTheme === 'dark' ? 'none' : '0 2px 8px rgba(0,0,0,0.1)'} !important;
+      }
+      
+      /* Preserve ChatGPT's avatar styling */
+      img[alt*="avatar"], img[alt*="profile"] {
+        border-radius: 50% !important;
+        width: 24px !important;
+        height: 24px !important;
+      }
+      
+      /* Links */
+      a {
+        color: ${finalTheme === 'dark' ? '#66b3ff' : '#0066cc'} !important;
+        text-decoration: none !important;
+        border-bottom: 1px solid transparent !important;
+        transition: border-color 0.2s ease !important;
+      }
+      
+      a:hover {
+        border-bottom-color: currentColor !important;
       }
       
       /* Ensure proper text visibility */
@@ -307,6 +357,26 @@ class ChatGPTToPDF {
       
       .bg-white {
         background-color: ${colors.background} !important;
+      }
+      
+      /* ChatGPT-specific elements */
+      [data-message-author-role] {
+        color: ${colors.text} !important;
+      }
+      
+      /* Math and LaTeX */
+      .katex, .math {
+        color: ${colors.text} !important;
+      }
+      
+      /* Lists */
+      ul, ol {
+        color: ${colors.text} !important;
+      }
+      
+      li {
+        color: ${colors.text} !important;
+        margin-bottom: 4px !important;
       }
     `;
   }
@@ -347,19 +417,6 @@ class ChatGPTToPDF {
     const title = document.title || 'ChatGPT Conversation';
     const timestamp = new Date().toLocaleString();
     
-    // Create iframe for hidden PDF generation
-    const iframe = document.createElement('iframe');
-    iframe.style.cssText = `
-      position: absolute;
-      left: -9999px;
-      top: -9999px;
-      width: 8.5in;
-      height: 11in;
-      border: none;
-      visibility: hidden;
-    `;
-    document.body.appendChild(iframe);
-    
     const htmlContent = `<!DOCTYPE html>
 <html dir="ltr">
 <head>
@@ -376,6 +433,19 @@ class ChatGPTToPDF {
   ${conversationHTML}
 </body>
 </html>`;
+    
+    // Create hidden iframe for print-to-PDF
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = `
+      position: absolute;
+      left: -9999px;
+      top: -9999px;
+      width: 8.5in;
+      height: 11in;
+      border: none;
+      visibility: hidden;
+    `;
+    document.body.appendChild(iframe);
     
     // Write content to iframe
     iframe.contentDocument.open();
@@ -398,7 +468,7 @@ class ChatGPTToPDF {
     await new Promise(resolve => setTimeout(resolve, 500));
     
     try {
-      // Focus iframe and trigger print
+      // Focus iframe and trigger print dialog
       iframe.contentWindow.focus();
       iframe.contentWindow.print();
       
@@ -407,10 +477,10 @@ class ChatGPTToPDF {
         if (document.body.contains(iframe)) {
           document.body.removeChild(iframe);
         }
-      }, 2000);
+      }, 3000);
       
     } catch (error) {
-      // Fallback: try to open in new window if iframe print fails
+      // Fallback: new window approach
       console.warn('Iframe print failed, trying window fallback:', error);
       
       const blob = new Blob([htmlContent], { type: 'text/html' });
@@ -418,7 +488,6 @@ class ChatGPTToPDF {
       const printWindow = window.open(url, '_blank', 'width=1000,height=800');
       
       if (printWindow) {
-        // Try to trigger print after window loads
         printWindow.addEventListener('load', () => {
           setTimeout(() => {
             printWindow.focus();
@@ -426,7 +495,6 @@ class ChatGPTToPDF {
           }, 1000);
         });
         
-        // Cleanup
         setTimeout(() => URL.revokeObjectURL(url), 10000);
       }
       
@@ -476,7 +544,7 @@ class ChatGPTToPDF {
       // Generate PDF directly with hidden method
       await this.generatePDFDirectly(conversationHTML, cssStyles, filename);
       
-      this.showStatus('Print dialog opened! Choose "Save as PDF"', 'success');
+      this.showStatus('Print dialog opened! Choose \"Save as PDF\" to download', 'success');
       
     } catch (error) {
       console.error('Export failed:', error);
