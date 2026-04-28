@@ -1,3 +1,5 @@
+![markdownToPdfChromeExtention banner](./banner.png)
+
 # ChatGPT to PDF Chrome Extension
 
 Easily export ChatGPT conversations to PDF.
